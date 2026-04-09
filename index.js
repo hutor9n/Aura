@@ -68,15 +68,19 @@ client.on('ready', async () => {
 
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     try {
-        console.log('[INFO] Очищаю старые guild slash-команды во всех серверах...');
+        console.log('[INFO] Удаляю все старые guild slash-команды во всех серверах...');
         for (const guild of client.guilds.cache.values()) {
             await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: [] });
-            console.log(`[INFO] Очищены guild slash-команды в гильдии ${guild.id}`);
+            console.log(`[INFO] Удалены guild slash-команды из гильдии ${guild.id}`);
         }
 
-        console.log('[INFO] Регистрирую глобальные slash-команды...');
+        console.log('[INFO] Удаляю все старые глобальные slash-команды...');
+        await rest.put(Routes.applicationCommands(client.user.id), { body: [] });
+        console.log('[INFO] Удаление глобальных slash-команд завершено.');
+
+        console.log('[INFO] Регистрирую новые глобальные slash-команды...');
         await rest.put(Routes.applicationCommands(client.user.id), { body: slashCommands });
-        console.log('[INFO] Глобальные slash-команды зарегистрированы.');
+        console.log('[INFO] Новые глобальные slash-команды зарегистрированы.');
     } catch (error) {
         console.error('[ERROR] Не удалось зарегистрировать slash-команды:', error);
     }
