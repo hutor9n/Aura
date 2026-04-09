@@ -1,3 +1,4 @@
+const { SlashCommandBuilder } = require('discord.js');
 const { useMainPlayer } = require('discord-player');
 const youtubedl = require('youtube-dl-exec');
 
@@ -38,6 +39,64 @@ function normalizeYoutubeQuery(input) {
     return `https://www.youtube.com/watch?v=${videoId}`;
 }
 
+function getTrackSource(track) {
+    const rawSource = String(track.source || track.extractor?.identifier || '').toLowerCase();
+    if (rawSource.includes('youtube')) return 'YouTube';
+    if (rawSource.includes('spotify')) return 'Spotify';
+    if (rawSource.includes('soundcloud')) return 'SoundCloud';
+    if (rawSource.includes('youtubemusic')) return 'YouTube Music';
+    if (rawSource.includes('apple')) return 'Apple Music';
+    if (rawSource.includes('deezer')) return 'Deezer';
+    if (rawSource.includes('tidal')) return 'Tidal';
+    if (rawSource.includes('bandcamp')) return 'Bandcamp';
+    if (!rawSource) return 'Неизвестно';
+    return rawSource[0].toUpperCase() + rawSource.slice(1);
+}
+
+function formatTrackLink(track) {
+    if (track.url) {
+        return track.toHyperlink();
+    }
+    return `**${track.title}**`;
+}
+
+function formatQueueStatus(queue) {
+    const currentTrack = queue.currentTrack;
+    const tracks = queue.tracks.toArray();
+    const nextTrack = tracks[0];
+    const queueLines = tracks.map((track, index) => `**${index + 1}.** ${formatTrackLink(track)} (${getTrackSource(track)})`).join('\n');
+
+    const lines = [];
+    if (currentTrack) {
+        lines.push(`▶️ Сейчас играет: ${formatTrackLink(currentTrack)}`);
+        lines.push(`🌐 Источник: ${getTrackSource(currentTrack)}`);
+    } else {
+        lines.push('▶️ Сейчас ничего не играет');
+    }
+
+    if (nextTrack) {
+        lines.push(`⏭️ Следующий: ${formatTrackLink(nextTrack)} (${getTrackSource(nextTrack)})`);
+    } else {
+        lines.push('⏭️ Следующего трека нет');
+    }
+
+    if (tracks.length) {
+        lines.push(`\n📜 Очередь (${tracks.length}):`, queueLines);
+    } else {
+        lines.push('\n📜 Очередь пуста');
+    }
+
+    return lines.join('\n');
+}
+
+function sendQueueStatusMessage(message, queue, track, addedToQueue) {
+    const header = addedToQueue
+        ? `✅ Трек добавлен в очередь: ${formatTrackLink(track)} (${getTrackSource(track)})`
+        : `▶️ Воспроизведение: ${formatTrackLink(track)}`;
+
+    return message.channel.send(`${header}\n\n${formatQueueStatus(queue)}`);
+}
+
 async function resolveYoutubeDirectAudioUrl(input) {
     const result = await youtubedl(input, {
         dumpSingleJson: true,
@@ -63,31 +122,68 @@ async function resolveYoutubeDirectAudioUrl(input) {
 }
 
 module.exports = {
+    data: new SlashCommandBuilder()
+        .setName('play')
+        .setDescription('Включить музыку')
+        .addStringOption(option =>
+            option
+                .setName('query')
+                .setDescription('Название трека или ссылка')
+                .setRequired(true)
+        ),
     name: 'play',
     description: 'Включить музыку',
-    async execute(message, args) {
+    async execute(interactionOrMessage, args) {
+        const isInteraction = typeof interactionOrMessage?.isChatInputCommand === 'function' && interactionOrMessage.isChatInputCommand();
+        const query = isInteraction
+            ? interactionOrMessage.options.getString('query')
+            : Array.isArray(args)
+                ? args.join(' ')
+                : '';
+
         const player = useMainPlayer();
-        const query = args.join(' ');
         const youtubeiIdentifier = 'com.retrouser955.discord-player.discord-player-youtubei';
-        const logPrefix = `[PLAY][${message.guild?.id || 'no-guild'}]`;
-        
+        const logPrefix = `[PLAY][${interactionOrMessage.guild?.id || 'no-guild'}]`;
+        const nodeMetadata = {
+            channel: interactionOrMessage.channel,
+            skipStartMessage: true
+        };
+
         if (!query) {
-            return message.reply('Братанчик, напиши название трека или ссылку! Пример: `!play Король и Шут`');
+            const errorText = 'Братанчик, напиши название трека или ссылку! Пример: `!play Король и Шут`';
+            if (isInteraction) {
+                if (!interactionOrMessage.deferred) await interactionOrMessage.deferReply({ ephemeral: true });
+                return interactionOrMessage.editReply({ content: errorText });
+            }
+            return interactionOrMessage.reply(errorText);
         }
 
-        const voiceChannel = message.member.voice.channel;
+        if (isInteraction) {
+            await interactionOrMessage.deferReply({ ephemeral: true });
+            await interactionOrMessage.followUp(`🔍 Ищу трек: **${query}**...`);
+        } else {
+            interactionOrMessage.channel.send(`🔍 Ищу трек: **${query}**...`);
+        }
+
+        const voiceChannel = interactionOrMessage.member.voice.channel;
         if (!voiceChannel) {
-            return message.reply('Братулёк, тебе нужно зайти в голосовой канал сначала!');
+            const errorText = 'Братулёк, тебе нужно зайти в голосовой канал сначала!';
+            if (isInteraction) {
+                return interactionOrMessage.editReply({ content: errorText });
+            }
+            return interactionOrMessage.reply(errorText);
         }
 
-        const permissions = voiceChannel.permissionsFor(message.client.user);
+        const permissions = voiceChannel.permissionsFor(interactionOrMessage.client.user);
         if (!permissions.has('Connect') || !permissions.has('Speak')) {
-            return message.reply('У меня нет прав на подключение и разговор в этом голосовом канале!');
+            const errorText = 'У меня нет прав на подключение и разговор в этом голосовом канале!';
+            if (isInteraction) {
+                return interactionOrMessage.editReply({ content: errorText });
+            }
+            return interactionOrMessage.reply(errorText);
         }
 
         try {
-            message.channel.send(`🔍 Ищу трек: **${query}**...`);
-
             const isYoutubeQuery = /(?:youtu\.be|youtube\.com)/i.test(query);
             const isSpotifyQuery = /(?:open\.spotify\.com|spotify:)/i.test(query);
             const normalizedQuery = isYoutubeQuery ? normalizeYoutubeQuery(query) : query;
@@ -102,25 +198,27 @@ module.exports = {
             if (isSpotifyQuery) {
                 console.log(`${logPrefix} spotify_link_detected=true; playback_source_will_be_bridged_by_extractor (often youtube)`);
             }
-            
-            // Проигрываем трек и сохраняем текстовый канал (metadata) для уведомлений 'playerStart'
-            await player.play(voiceChannel, normalizedQuery, {
+
+            const primaryResult = await player.play(voiceChannel, normalizedQuery, {
                 searchEngine: isYoutubeQuery ? `ext:${youtubeiIdentifier}` : undefined,
                 nodeOptions: {
                     leaveOnEnd: false,
                     leaveOnStop: false,
                     leaveOnEmpty: true,
                     leaveOnEmptyCooldown: 0,
-                    metadata: {
-                        channel: message.channel
-                    }
+                    metadata: nodeMetadata
                 }
             });
 
-            console.log(`${logPrefix} play_success=true stage=primary`);
+            const wasQueued = primaryResult.queue.tracks.toArray().some((track) => track.id === primaryResult.track.id);
+            await sendQueueStatusMessage(interactionOrMessage, primaryResult.queue, primaryResult.track, wasQueued);
 
+            console.log(`${logPrefix} play_success=true stage=primary queued=${wasQueued}`);
+
+            if (isInteraction) {
+                return interactionOrMessage.editReply({ content: '✅ Трек добавлен в очередь и сообщение отправлено в канал.' });
+            }
             return;
-            
         } catch (e) {
             const isNoResultError = e?.code === 'ERR_NO_RESULT';
             const isYoutubeQuery = /(?:youtu\.be|youtube\.com)/i.test(query);
@@ -132,21 +230,25 @@ module.exports = {
             if (isYoutubeQuery && isNoResultError) {
                 console.log(`${logPrefix} fallback_stage=normalized_query attempt=true query="${normalizedQuery}"`);
                 try {
-                    await player.play(voiceChannel, normalizedQuery, {
+                    const normalizedResult = await player.play(voiceChannel, normalizedQuery, {
                         searchEngine: `ext:${youtubeiIdentifier}`,
                         nodeOptions: {
                             leaveOnEnd: false,
                             leaveOnStop: false,
                             leaveOnEmpty: true,
                             leaveOnEmptyCooldown: 0,
-                            metadata: {
-                                channel: message.channel
-                            }
+                            metadata: nodeMetadata
                         }
                     });
 
-                    console.log(`${logPrefix} play_success=true stage=normalized_query`);
+                    const wasQueued = normalizedResult.queue.tracks.toArray().some((track) => track.id === normalizedResult.track.id);
+                    await sendQueueStatusMessage(interactionOrMessage, normalizedResult.queue, normalizedResult.track, wasQueued);
 
+                    console.log(`${logPrefix} play_success=true stage=normalized_query queued=${wasQueued}`);
+
+                    if (isInteraction) {
+                        return interactionOrMessage.editReply({ content: '✅ Трек добавлен в очередь и сообщение отправлено в канал.' });
+                    }
                     return;
                 } catch (retryError) {
                     console.warn(`${logPrefix} fallback_failed stage=normalized_query code=${retryError?.code || 'unknown'} message="${retryError?.message || 'unknown'}"`);
@@ -154,21 +256,25 @@ module.exports = {
                     if (youtubeVideoId) {
                         console.log(`${logPrefix} fallback_stage=video_id attempt=true video_id=${youtubeVideoId}`);
                         try {
-                            await player.play(voiceChannel, youtubeVideoId, {
+                            const videoIdResult = await player.play(voiceChannel, youtubeVideoId, {
                                 searchEngine: `ext:${youtubeiIdentifier}`,
                                 nodeOptions: {
                                     leaveOnEnd: false,
                                     leaveOnStop: false,
                                     leaveOnEmpty: true,
                                     leaveOnEmptyCooldown: 0,
-                                    metadata: {
-                                        channel: message.channel
-                                    }
+                                    metadata: nodeMetadata
                                 }
                             });
 
-                            console.log(`${logPrefix} play_success=true stage=video_id`);
+                            const wasQueued = videoIdResult.queue.tracks.toArray().some((track) => track.id === videoIdResult.track.id);
+                            await sendQueueStatusMessage(interactionOrMessage, videoIdResult.queue, videoIdResult.track, wasQueued);
 
+                            console.log(`${logPrefix} play_success=true stage=video_id queued=${wasQueued}`);
+
+                            if (isInteraction) {
+                                return interactionOrMessage.editReply({ content: '✅ Трек добавлен в очередь и сообщение отправлено в канал.' });
+                            }
                             return;
                         } catch {
                             try {
@@ -179,27 +285,36 @@ module.exports = {
                                     throw new Error('No direct audio stream URL from yt-dlp');
                                 }
 
-                                await player.play(voiceChannel, directAudioUrl, {
+                                const directAudioResult = await player.play(voiceChannel, directAudioUrl, {
                                     nodeOptions: {
                                         leaveOnEnd: false,
                                         leaveOnStop: false,
                                         leaveOnEmpty: true,
                                         leaveOnEmptyCooldown: 0,
-                                        metadata: {
-                                            channel: message.channel
-                                        }
+                                        metadata: nodeMetadata
                                     }
                                 });
 
-                                console.log(`${logPrefix} play_success=true stage=yt_dlp_direct_audio`);
+                                const wasQueued = directAudioResult.queue.tracks.toArray().some((track) => track.id === directAudioResult.track.id);
+                                await sendQueueStatusMessage(interactionOrMessage, directAudioResult.queue, directAudioResult.track, wasQueued);
 
-                                await message.channel.send('ℹ️ Основной YouTube-экстрактор не дал результат, использован резервный источник потока.');
+                                console.log(`${logPrefix} play_success=true stage=yt_dlp_direct_audio queued=${wasQueued}`);
+
+                                if (isInteraction) {
+                                    await interactionOrMessage.followUp('ℹ️ Основной YouTube-экстрактор не дал результат, использован резервный источник потока.');
+                                    return interactionOrMessage.editReply({ content: '✅ Трек добавлен в очередь и сообщение отправлено в канал.' });
+                                }
+                                await interactionOrMessage.channel.send('ℹ️ Основной YouTube-экстрактор не дал результат, использован резервный источник потока.');
                                 return;
                             } catch (ytDlpError) {
                                 console.warn(`${logPrefix} fallback_failed stage=yt_dlp_direct_audio message="${ytDlpError?.message || 'unknown'}"`);
                                 console.error(retryError);
                                 console.error(ytDlpError);
-                                return message.channel.send('❌ Не удалось найти или извлечь этот YouTube-трек. Видео может быть недоступно в вашем регионе, приватным или заблокированным. Попробуй другую ссылку или название трека.');
+                                const errorMessage = '❌ Не удалось найти или извлечь этот YouTube-трек. Видео может быть недоступно в вашем регионе, приватным или заблокированным. Попробуй другую ссылку или название трека.';
+                                if (isInteraction) {
+                                    return interactionOrMessage.editReply({ content: errorMessage });
+                                }
+                                return interactionOrMessage.channel.send(errorMessage);
                             }
                         }
                     }
@@ -212,33 +327,46 @@ module.exports = {
                             throw new Error('No direct audio stream URL from yt-dlp');
                         }
 
-                        await player.play(voiceChannel, directAudioUrl, {
+                        const directAudioResult = await player.play(voiceChannel, directAudioUrl, {
                             nodeOptions: {
                                 leaveOnEnd: false,
                                 leaveOnStop: false,
                                 leaveOnEmpty: true,
                                 leaveOnEmptyCooldown: 0,
-                                metadata: {
-                                    channel: message.channel
-                                }
+                                metadata: nodeMetadata
                             }
                         });
 
-                        console.log(`${logPrefix} play_success=true stage=yt_dlp_direct_audio`);
+                        const wasQueued = directAudioResult.queue.tracks.toArray().some((track) => track.id === directAudioResult.track.id);
+                        await sendQueueStatusMessage(interactionOrMessage, directAudioResult.queue, directAudioResult.track, wasQueued);
 
-                        await message.channel.send('ℹ️ Основной YouTube-экстрактор не дал результат, использован резервный источник потока.');
+                        console.log(`${logPrefix} play_success=true stage=yt_dlp_direct_audio queued=${wasQueued}`);
+
+                        if (isInteraction) {
+                            await interactionOrMessage.followUp('ℹ️ Основной YouTube-экстрактор не дал результат, использован резервный источник потока.');
+                            return interactionOrMessage.editReply({ content: '✅ Трек добавлен в очередь и сообщение отправлено в канал.' });
+                        }
+                        await interactionOrMessage.channel.send('ℹ️ Основной YouTube-экстрактор не дал результат, использован резервный источник потока.');
                         return;
                     } catch (ytDlpError) {
                         console.warn(`${logPrefix} fallback_failed stage=yt_dlp_direct_audio message="${ytDlpError?.message || 'unknown'}"`);
                         console.error(retryError);
                         console.error(ytDlpError);
-                        return message.channel.send('❌ Не удалось найти или извлечь этот YouTube-трек. Видео может быть недоступно в вашем регионе, приватным или заблокированным. Попробуй другую ссылку или название трека.');
+                        const errorMessage = '❌ Не удалось найти или извлечь этот YouTube-трек. Видео может быть недоступно в вашем регионе, приватным или заблокированным. Попробуй другую ссылку или название трека.';
+                        if (isInteraction) {
+                            return interactionOrMessage.editReply({ content: errorMessage });
+                        }
+                        return interactionOrMessage.channel.send(errorMessage);
                     }
                 }
             }
 
             console.error(e);
-            return message.channel.send(`❌ Ошибка при воспроизведении: \n${e.message}`);
+            const errorMessage = `❌ Ошибка при воспроизведении: \n${e.message}`;
+            if (isInteraction) {
+                return interactionOrMessage.editReply({ content: errorMessage });
+            }
+            return interactionOrMessage.channel.send(errorMessage);
         }
     },
 };

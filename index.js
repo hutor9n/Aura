@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, Collection } = require('discord.js');
+const { Client, GatewayIntentBits, Collection, REST, Routes, Events } = require('discord.js');
 const { Player } = require('discord-player');
 const fs = require('fs');
 const path = require('path');
@@ -47,21 +47,72 @@ if (!fs.existsSync(commandsPath)) {
 }
 
 const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
+const slashCommands = [];
 
 for (const file of commandFiles) {
     const filePath = path.join(commandsPath, file);
     const command = require(filePath);
     if ('name' in command && 'execute' in command) {
         client.commands.set(command.name, command);
+        if ('data' in command) {
+            slashCommands.push(command.data.toJSON());
+        }
     } else {
         console.log(`[WARNING] В файле команды ${filePath} отсутствует "name" или "execute".`);
     }
 }
 
-client.on('clientReady', () => {
+client.on('ready', async () => {
     console.log(`[INFO] Залогинен как ${client.user.tag}!`);
     console.log(`[INFO] Бот успешно запущен и готов играть музло.`);
+
+    const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+    try {
+        console.log('[INFO] Очищаю старые guild slash-команды во всех серверах...');
+        for (const guild of client.guilds.cache.values()) {
+            await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: [] });
+            console.log(`[INFO] Очищены guild slash-команды в гильдии ${guild.id}`);
+        }
+
+        console.log('[INFO] Регистрирую глобальные slash-команды...');
+        await rest.put(Routes.applicationCommands(client.user.id), { body: slashCommands });
+        console.log('[INFO] Глобальные slash-команды зарегистрированы.');
+    } catch (error) {
+        console.error('[ERROR] Не удалось зарегистрировать slash-команды:', error);
+    }
 });
+
+client.on(Events.InteractionCreate, async (interaction) => {
+    if (!interaction.isChatInputCommand()) return;
+
+    const command = client.commands.get(interaction.commandName);
+    if (!command) return;
+
+    try {
+        await command.execute(interaction);
+    } catch (error) {
+        console.error(error);
+        if (interaction.replied || interaction.deferred) {
+            await interaction.followUp({ content: '❌ Произошла ошибка при выполнении команды.', ephemeral: true });
+        } else {
+            await interaction.reply({ content: '❌ Произошла ошибка при выполнении команды.', ephemeral: true });
+        }
+    }
+});
+
+function formatQueueMessage(queue, currentTrack) {
+    const tracks = queue.tracks.toArray();
+    const upcoming = tracks.map((track, index) => `**${index + 1}.** ${track.title}`).join('\n') || 'Пусто';
+    const nextTrack = tracks[0] ? `**Следующий:** ${tracks[0].title}` : 'В очереди нет следующего трека';
+
+    return [
+        `🎵 **Сейчас играет:** ${currentTrack.title}`,
+        nextTrack,
+        `
+📜 **Очередь (${tracks.length}):**`,
+        upcoming
+    ].join('\n');
+}
 
 client.on('messageCreate', async message => {
     // Игнорируем других ботов и сообщения без префикса
@@ -85,7 +136,23 @@ client.on('messageCreate', async message => {
 
 // События плеера для отправки сообщений при старте трека
 player.events.on('playerStart', (queue, track) => {
-    queue.metadata.channel.send(`🎵 Сейчас играет: **${track.title}**`);
+    if (queue.metadata?.skipStartMessage) {
+        queue.metadata.skipStartMessage = false;
+        return;
+    }
+
+    const channel = queue.metadata?.channel;
+    if (!channel) return;
+
+    const queueMessage = formatQueueMessage(queue, track);
+    channel.send(queueMessage).catch(console.error);
+});
+
+player.events.on('emptyQueue', (queue) => {
+    const channel = queue.metadata?.channel;
+    if (!channel) return;
+
+    channel.send('✅ Очередь закончилась, больше треков нет.').catch(console.error);
 });
 
 // Обработчики ошибок плеера (обязательны в новых версиях)
