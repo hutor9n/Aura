@@ -242,5 +242,3 @@ module.exports = {
         }
     },
 };
-
-console.log('[play.js] Команда play загружена');
