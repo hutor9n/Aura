@@ -50,7 +50,7 @@ module.exports = {
     async execute(interactionOrMessage) {
         const isInteraction = typeof interactionOrMessage?.isChatInputCommand === 'function' && interactionOrMessage.isChatInputCommand();
         if (isInteraction) {
-            await interactionOrMessage.deferReply({ ephemeral: false });
+            await interactionOrMessage.deferReply();
         }
 
         const player = useMainPlayer();

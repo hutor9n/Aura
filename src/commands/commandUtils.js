@@ -1,10 +1,24 @@
+const { MessageFlags } = require('discord.js');
+
 function isInteractionCommand(ctx) {
     return typeof ctx?.isChatInputCommand === 'function' && ctx.isChatInputCommand();
 }
 
 async function deferIfInteraction(ctx, options) {
     if (isInteractionCommand(ctx) && !ctx.deferred && !ctx.replied) {
-        await ctx.deferReply(options);
+        const deferOptions = { ...(options || {}) };
+        if ('ephemeral' in deferOptions) {
+            if (deferOptions.ephemeral) {
+                deferOptions.flags = MessageFlags.Ephemeral;
+            }
+            delete deferOptions.ephemeral;
+        }
+
+        if (Object.keys(deferOptions).length > 0) {
+            await ctx.deferReply(deferOptions);
+        } else {
+            await ctx.deferReply();
+        }
     }
 }
 

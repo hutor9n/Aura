@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, Collection, REST, Routes, Events } = require('discord.js');
+const { Client, GatewayIntentBits, Collection, REST, Routes, Events, MessageFlags } = require('discord.js');
 const { Player, QueueRepeatMode } = require('discord-player');
 const fs = require('fs');
 const path = require('path');
@@ -169,7 +169,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (!queue) {
             await interaction.reply({
                 content: 'Сейчас ничего не играет.',
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
             });
             return;
         }
@@ -180,7 +180,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (!memberVoiceChannel) {
             await interaction.reply({
                 content: 'Зайди в голосовой канал, чтобы управлять воспроизведением.',
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
             });
             return;
         }
@@ -188,7 +188,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (botVoiceChannel && memberVoiceChannel.id !== botVoiceChannel.id) {
             await interaction.reply({
                 content: 'Ты должен быть в том же голосовом канале, что и бот.',
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
             });
             return;
         }
@@ -206,7 +206,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         } else if (action === 'stop') {
             queue.delete();
             await interaction.update({ components: [] });
-            await interaction.followUp({ content: '🛑 Воспроизведение остановлено и очередь очищена.', ephemeral: true });
+            await interaction.followUp({ content: '🛑 Воспроизведение остановлено и очередь очищена.', flags: MessageFlags.Ephemeral });
             return;
         } else if (action === 'shuffle') {
             queue.toggleShuffle(true);
@@ -225,7 +225,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         await interaction.followUp({
             content: resultText,
-            ephemeral: true
+            flags: MessageFlags.Ephemeral
         });
         return;
     }
@@ -240,9 +240,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
     } catch (error) {
         console.error(error);
         if (interaction.replied || interaction.deferred) {
-            await interaction.followUp({ content: '❌ Произошла ошибка при выполнении команды.', ephemeral: true });
+            await interaction.followUp({ content: '❌ Произошла ошибка при выполнении команды.', flags: MessageFlags.Ephemeral });
         } else {
-            await interaction.reply({ content: '❌ Произошла ошибка при выполнении команды.', ephemeral: true });
+            await interaction.reply({ content: '❌ Произошла ошибка при выполнении команды.', flags: MessageFlags.Ephemeral });
         }
     }
 });
