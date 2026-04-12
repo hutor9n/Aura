@@ -246,6 +246,16 @@ module.exports = {
             return replyText(interactionOrMessage, 'У меня нет прав на подключение и разговор в этом голосовом канале!');
         }
 
+        if (!interactionOrMessage.client.extractorsReady) {
+            const ready = typeof interactionOrMessage.client.ensureExtractorsReady === 'function'
+                ? await interactionOrMessage.client.ensureExtractorsReady()
+                : true;
+
+            if (!ready) {
+                return replyText(interactionOrMessage, '⏳ Бот прогревается после запуска. Повтори команду через 5-10 секунд.');
+            }
+        }
+
         try {
             const isYoutubeQuery = /(?:youtu\.be|youtube\.com)/i.test(query);
             const isSpotifyQuery = /(?:open\.spotify\.com|spotify:)/i.test(query);
