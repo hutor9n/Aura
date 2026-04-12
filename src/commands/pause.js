@@ -1,5 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { useMainPlayer } = require('discord-player');
+const { deferIfInteraction, ensureVoiceAccess, replyText } = require('./commandUtils');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -8,32 +9,18 @@ module.exports = {
     name: 'pause',
     description: 'Поставить музыку на паузу или снять с паузы',
     async execute(interactionOrMessage) {
-        const isInteraction = typeof interactionOrMessage?.isChatInputCommand === 'function' && interactionOrMessage.isChatInputCommand();
-        if (isInteraction) {
-            await interactionOrMessage.deferReply({ ephemeral: true });
-        }
+        await deferIfInteraction(interactionOrMessage, { ephemeral: true });
 
         const player = useMainPlayer();
         const queue = player.nodes.get(interactionOrMessage.guild.id);
-        const memberVoiceChannel = interactionOrMessage.member.voice.channel;
-        const botVoiceChannel = interactionOrMessage.guild.members.me?.voice?.channel;
+        const hasAccess = await ensureVoiceAccess(interactionOrMessage, queue, {
+            requireQueue: true,
+            requirePlaying: true,
+            requireSameChannel: true
+        });
 
-        if (!queue || !queue.isPlaying()) {
-            const text = 'Сейчас ничего не играет!';
-            if (isInteraction) return interactionOrMessage.editReply({ content: text });
-            return interactionOrMessage.reply(text);
-        }
-
-        if (!memberVoiceChannel) {
-            const text = 'Зайди в голосовой канал, чтобы управлять воспроизведением.';
-            if (isInteraction) return interactionOrMessage.editReply({ content: text });
-            return interactionOrMessage.reply(text);
-        }
-
-        if (botVoiceChannel && memberVoiceChannel.id !== botVoiceChannel.id) {
-            const text = 'Ты должен быть в том же голосовом канале, что и бот.';
-            if (isInteraction) return interactionOrMessage.editReply({ content: text });
-            return interactionOrMessage.reply(text);
+        if (!hasAccess) {
+            return;
         }
 
         queue.node.setPaused(!queue.node.isPaused());
@@ -41,7 +28,6 @@ module.exports = {
             ? '⏸️ Музыка поставлена на паузу! (Напиши `/pause` чтобы продолжить)'
             : '▶️ Музыка снята с паузы!';
 
-        if (isInteraction) return interactionOrMessage.editReply({ content: text });
-        return interactionOrMessage.reply(text);
+        return replyText(interactionOrMessage, text);
     },
 };

@@ -1,5 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { useMainPlayer } = require('discord-player');
+const { deferIfInteraction, ensureVoiceAccess, replyText } = require('./commandUtils');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -8,23 +9,26 @@ module.exports = {
     name: 'clear',
     description: 'Очистить очередь треков',
     async execute(interactionOrMessage) {
-        const isInteraction = typeof interactionOrMessage?.isChatInputCommand === 'function' && interactionOrMessage.isChatInputCommand();
-        if (isInteraction) {
-            await interactionOrMessage.deferReply({ ephemeral: false });
-        }
+        await deferIfInteraction(interactionOrMessage, { ephemeral: false });
 
         const player = useMainPlayer();
         const queue = player.nodes.get(interactionOrMessage.guild.id);
 
         if (!queue || queue.tracks.size === 0) {
-            const text = 'Очередь уже пуста.';
-            if (isInteraction) return interactionOrMessage.editReply({ content: text });
-            return interactionOrMessage.reply(text);
+            return replyText(interactionOrMessage, 'Очередь уже пуста.');
+        }
+
+        const hasAccess = await ensureVoiceAccess(interactionOrMessage, queue, {
+            requireQueue: false,
+            requirePlaying: false,
+            requireSameChannel: true
+        });
+
+        if (!hasAccess) {
+            return;
         }
 
         queue.clear();
-        const text = 'Очередь очищена.';
-        if (isInteraction) return interactionOrMessage.editReply({ content: text });
-        return interactionOrMessage.reply(text);
+        return replyText(interactionOrMessage, 'Очередь очищена.');
     }
 };

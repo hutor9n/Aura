@@ -1,5 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { useMainPlayer } = require('discord-player');
+const { isInteractionCommand, deferIfInteraction, ensureVoiceAccess, replyText } = require('./commandUtils');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -16,18 +17,20 @@ module.exports = {
     name: 'volume',
     description: 'Установить громкость плеера или посмотреть текущую',
     async execute(interactionOrMessage, args) {
-        const isInteraction = typeof interactionOrMessage?.isChatInputCommand === 'function' && interactionOrMessage.isChatInputCommand();
-        if (isInteraction) {
-            await interactionOrMessage.deferReply({ ephemeral: false });
-        }
+        const isInteraction = isInteractionCommand(interactionOrMessage);
+        await deferIfInteraction(interactionOrMessage, { ephemeral: false });
 
         const player = useMainPlayer();
         const queue = player.nodes.get(interactionOrMessage.guild.id);
 
-        if (!queue) {
-            const text = 'Сейчас ничего не играет.';
-            if (isInteraction) return interactionOrMessage.editReply({ content: text });
-            return interactionOrMessage.reply(text);
+        const hasAccess = await ensureVoiceAccess(interactionOrMessage, queue, {
+            requireQueue: true,
+            requirePlaying: false,
+            requireSameChannel: true
+        });
+
+        if (!hasAccess) {
+            return;
         }
 
         const level = isInteraction
@@ -35,14 +38,10 @@ module.exports = {
             : args?.[0] ? Number(args[0]) : undefined;
 
         if (level == null || Number.isNaN(level)) {
-            const text = `Текущая громкость: **${queue.node.volume}**`;
-            if (isInteraction) return interactionOrMessage.editReply({ content: text });
-            return interactionOrMessage.reply(text);
+            return replyText(interactionOrMessage, `Текущая громкость: **${queue.node.volume}**`);
         }
 
         queue.node.setVolume(level);
-        const text = `Громкость установлена на **${level}**.`;
-        if (isInteraction) return interactionOrMessage.editReply({ content: text });
-        return interactionOrMessage.reply(text);
+        return replyText(interactionOrMessage, `Громкость установлена на **${level}**.`);
     }
 };

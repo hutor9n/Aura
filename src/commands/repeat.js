@@ -1,5 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { useMainPlayer, QueueRepeatMode } = require('discord-player');
+const { isInteractionCommand, deferIfInteraction, ensureVoiceAccess, replyText } = require('./commandUtils');
 
 const repeatModeNames = {
     off: 'OFF',
@@ -36,18 +37,20 @@ module.exports = {
     name: 'repeat',
     description: 'Установить режим повторения очереди',
     async execute(interactionOrMessage, args) {
-        const isInteraction = typeof interactionOrMessage?.isChatInputCommand === 'function' && interactionOrMessage.isChatInputCommand();
-        if (isInteraction) {
-            await interactionOrMessage.deferReply({ ephemeral: false });
-        }
+        const isInteraction = isInteractionCommand(interactionOrMessage);
+        await deferIfInteraction(interactionOrMessage, { ephemeral: false });
 
         const player = useMainPlayer();
         const queue = player.nodes.get(interactionOrMessage.guild.id);
 
-        if (!queue) {
-            const text = 'Сейчас ничего не играет.';
-            if (isInteraction) return interactionOrMessage.editReply({ content: text });
-            return interactionOrMessage.reply(text);
+        const hasAccess = await ensureVoiceAccess(interactionOrMessage, queue, {
+            requireQueue: true,
+            requirePlaying: false,
+            requireSameChannel: true
+        });
+
+        if (!hasAccess) {
+            return;
         }
 
         const mode = isInteraction
@@ -55,20 +58,14 @@ module.exports = {
             : args?.[0]?.toLowerCase();
 
         if (!mode) {
-            const text = `Текущий режим повторения: **${formatRepeatMode(queue.repeatMode)}**`;
-            if (isInteraction) return interactionOrMessage.editReply({ content: text });
-            return interactionOrMessage.reply(text);
+            return replyText(interactionOrMessage, `Текущий режим повторения: **${formatRepeatMode(queue.repeatMode)}**`);
         }
 
         if (!repeatModeNames[mode]) {
-            const text = 'Неверный режим. Используй off, track или queue.';
-            if (isInteraction) return interactionOrMessage.editReply({ content: text });
-            return interactionOrMessage.reply(text);
+            return replyText(interactionOrMessage, 'Неверный режим. Используй off, track или queue.');
         }
 
         queue.setRepeatMode(QueueRepeatMode[repeatModeNames[mode]]);
-        const text = `Режим повторения установлен: **${formatRepeatMode(queue.repeatMode)}**`;
-        if (isInteraction) return interactionOrMessage.editReply({ content: text });
-        return interactionOrMessage.reply(text);
+        return replyText(interactionOrMessage, `Режим повторения установлен: **${formatRepeatMode(queue.repeatMode)}**`);
     }
 };

@@ -1,8 +1,9 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits, Collection, REST, Routes, Events } = require('discord.js');
-const { Player } = require('discord-player');
+const { Player, QueueRepeatMode } = require('discord-player');
 const fs = require('fs');
 const path = require('path');
+const { CONTROL_PREFIX, createPlayerControlComponents, getNextRepeatMode } = require('./src/playerControls');
 
 const client = new Client({
     intents: [
@@ -46,7 +47,9 @@ if (!fs.existsSync(commandsPath)) {
     fs.mkdirSync(commandsPath, { recursive: true });
 }
 
-const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
+const commandFiles = fs.readdirSync(commandsPath)
+    .filter(file => file.endsWith('.js'))
+    .filter(file => file !== 'commandUtils.js');
 const slashCommands = [];
 
 for (const file of commandFiles) {
@@ -68,16 +71,6 @@ client.on('ready', async () => {
 
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     try {
-        console.log('[INFO] Удаляю все старые guild slash-команды во всех серверах...');
-        for (const guild of client.guilds.cache.values()) {
-            await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: [] });
-            console.log(`[INFO] Удалены guild slash-команды из гильдии ${guild.id}`);
-        }
-
-        console.log('[INFO] Удаляю все старые глобальные slash-команды...');
-        await rest.put(Routes.applicationCommands(client.user.id), { body: [] });
-        console.log('[INFO] Удаление глобальных slash-команд завершено.');
-
         console.log('[INFO] Регистрирую новые глобальные slash-команды...');
         await rest.put(Routes.applicationCommands(client.user.id), { body: slashCommands });
         console.log('[INFO] Новые глобальные slash-команды зарегистрированы.');
@@ -87,6 +80,73 @@ client.on('ready', async () => {
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
+    if (interaction.isButton() && interaction.customId.startsWith(`${CONTROL_PREFIX}:`)) {
+        const queue = player.nodes.get(interaction.guildId);
+
+        if (!queue) {
+            await interaction.reply({
+                content: 'Сейчас ничего не играет.',
+                ephemeral: true
+            });
+            return;
+        }
+
+        const memberVoiceChannel = interaction.member?.voice?.channel;
+        const botVoiceChannel = interaction.guild?.members?.me?.voice?.channel;
+
+        if (!memberVoiceChannel) {
+            await interaction.reply({
+                content: 'Зайди в голосовой канал, чтобы управлять воспроизведением.',
+                ephemeral: true
+            });
+            return;
+        }
+
+        if (botVoiceChannel && memberVoiceChannel.id !== botVoiceChannel.id) {
+            await interaction.reply({
+                content: 'Ты должен быть в том же голосовом канале, что и бот.',
+                ephemeral: true
+            });
+            return;
+        }
+
+        const action = interaction.customId.split(':')[1];
+        let resultText = 'Готово.';
+
+        if (action === 'pause') {
+            const newPausedState = !queue.node.isPaused();
+            queue.node.setPaused(newPausedState);
+            resultText = newPausedState ? '⏸️ Пауза включена.' : '▶️ Воспроизведение продолжено.';
+        } else if (action === 'skip') {
+            const skipped = queue.node.skip();
+            resultText = skipped ? '⏭️ Трек пропущен.' : 'Не удалось пропустить трек.';
+        } else if (action === 'stop') {
+            queue.delete();
+            await interaction.update({ components: [] });
+            await interaction.followUp({ content: '🛑 Воспроизведение остановлено и очередь очищена.', ephemeral: true });
+            return;
+        } else if (action === 'shuffle') {
+            queue.toggleShuffle(true);
+            resultText = queue.isShuffling ? '🔀 Shuffle включен.' : '🔀 Shuffle выключен.';
+        } else if (action === 'repeat') {
+            const nextMode = getNextRepeatMode(queue.repeatMode);
+            queue.setRepeatMode(nextMode);
+            if (nextMode === QueueRepeatMode.TRACK) resultText = '🔁 Repeat: Трек';
+            else if (nextMode === QueueRepeatMode.QUEUE) resultText = '🔁 Repeat: Очередь';
+            else resultText = '🔁 Repeat: Off';
+        }
+
+        await interaction.update({
+            components: createPlayerControlComponents(queue)
+        });
+
+        await interaction.followUp({
+            content: resultText,
+            ephemeral: true
+        });
+        return;
+    }
+
     if (!interaction.isChatInputCommand()) return;
 
     const command = client.commands.get(interaction.commandName);
@@ -149,7 +209,10 @@ player.events.on('playerStart', (queue, track) => {
     if (!channel) return;
 
     const queueMessage = formatQueueMessage(queue, track);
-    channel.send(queueMessage).catch(console.error);
+    channel.send({
+        content: queueMessage,
+        components: createPlayerControlComponents(queue)
+    }).catch(console.error);
 });
 
 player.events.on('emptyQueue', (queue) => {

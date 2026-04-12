@@ -1,5 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { useMainPlayer } = require('discord-player');
+const { isInteractionCommand, deferIfInteraction, ensureVoiceAccess, replyText } = require('./commandUtils');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -19,18 +20,20 @@ module.exports = {
     name: 'shuffle',
     description: 'Включить или выключить режим случайного перемешивания очереди',
     async execute(interactionOrMessage, args) {
-        const isInteraction = typeof interactionOrMessage?.isChatInputCommand === 'function' && interactionOrMessage.isChatInputCommand();
-        if (isInteraction) {
-            await interactionOrMessage.deferReply({ ephemeral: false });
-        }
+        const isInteraction = isInteractionCommand(interactionOrMessage);
+        await deferIfInteraction(interactionOrMessage, { ephemeral: false });
 
         const player = useMainPlayer();
         const queue = player.nodes.get(interactionOrMessage.guild.id);
 
-        if (!queue) {
-            const text = 'Сейчас ничего не играет.';
-            if (isInteraction) return interactionOrMessage.editReply({ content: text });
-            return interactionOrMessage.reply(text);
+        const hasAccess = await ensureVoiceAccess(interactionOrMessage, queue, {
+            requireQueue: true,
+            requirePlaying: false,
+            requireSameChannel: true
+        });
+
+        if (!hasAccess) {
+            return;
         }
 
         const mode = isInteraction
@@ -45,14 +48,10 @@ module.exports = {
         } else if (mode === 'off') {
             enabled = queue.disableShuffle();
         } else {
-            const text = 'Неверный режим. Используй on, off или toggle.';
-            if (isInteraction) return interactionOrMessage.editReply({ content: text });
-            return interactionOrMessage.reply(text);
+            return replyText(interactionOrMessage, 'Неверный режим. Используй on, off или toggle.');
         }
 
         const status = queue.isShuffling ? 'включён' : 'выключен';
-        const text = `Shuffle ${status}.`;
-        if (isInteraction) return interactionOrMessage.editReply({ content: text });
-        return interactionOrMessage.reply(text);
+        return replyText(interactionOrMessage, `Shuffle ${status}.`);
     }
 };

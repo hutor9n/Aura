@@ -1,5 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { useMainPlayer } = require('discord-player');
+const { isInteractionCommand, deferIfInteraction, ensureVoiceAccess, replyText } = require('./commandUtils');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -15,18 +16,24 @@ module.exports = {
     name: 'remove',
     description: 'Удалить трек из очереди по номеру',
     async execute(interactionOrMessage, args) {
-        const isInteraction = typeof interactionOrMessage?.isChatInputCommand === 'function' && interactionOrMessage.isChatInputCommand();
-        if (isInteraction) {
-            await interactionOrMessage.deferReply({ ephemeral: false });
-        }
+        const isInteraction = isInteractionCommand(interactionOrMessage);
+        await deferIfInteraction(interactionOrMessage, { ephemeral: false });
 
         const player = useMainPlayer();
         const queue = player.nodes.get(interactionOrMessage.guild.id);
 
         if (!queue || queue.tracks.size === 0) {
-            const text = 'Очередь пустая.';
-            if (isInteraction) return interactionOrMessage.editReply({ content: text });
-            return interactionOrMessage.reply(text);
+            return replyText(interactionOrMessage, 'Очередь пустая.');
+        }
+
+        const hasAccess = await ensureVoiceAccess(interactionOrMessage, queue, {
+            requireQueue: false,
+            requirePlaying: false,
+            requireSameChannel: true
+        });
+
+        if (!hasAccess) {
+            return;
         }
 
         const position = isInteraction
@@ -34,21 +41,15 @@ module.exports = {
             : args?.[0] ? Number(args[0]) : NaN;
 
         if (!position || Number.isNaN(position) || position < 1) {
-            const text = 'Укажи корректный номер трека в очереди.';
-            if (isInteraction) return interactionOrMessage.editReply({ content: text });
-            return interactionOrMessage.reply(text);
+            return replyText(interactionOrMessage, 'Укажи корректный номер трека в очереди.');
         }
 
         const track = queue.tracks.toArray()[position - 1];
         if (!track) {
-            const text = `Трека под номером ${position} нет в очереди.`;
-            if (isInteraction) return interactionOrMessage.editReply({ content: text });
-            return interactionOrMessage.reply(text);
+            return replyText(interactionOrMessage, `Трека под номером ${position} нет в очереди.`);
         }
 
         queue.removeTrack(track);
-        const text = `Удалён трек **${track.title}** из очереди.`;
-        if (isInteraction) return interactionOrMessage.editReply({ content: text });
-        return interactionOrMessage.reply(text);
+        return replyText(interactionOrMessage, `Удалён трек **${track.title}** из очереди.`);
     }
 };
