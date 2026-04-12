@@ -1,0 +1,13 @@
+services:
+  - type: worker
+    name: aura-bot
+    env: node
+    plan: starter
+    autoDeploy: true
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: YOUTUBE_COOKIE
+        sync: false
