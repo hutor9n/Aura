@@ -214,10 +214,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await command.execute(interaction);
     } catch (error) {
         console.error(error);
-        if (interaction.replied || interaction.deferred) {
-            await interaction.followUp({ content: '❌ Произошла ошибка при выполнении команды.', flags: MessageFlags.Ephemeral });
-        } else {
-            await interaction.reply({ content: '❌ Произошла ошибка при выполнении команды.', flags: MessageFlags.Ephemeral });
+        try {
+            if (interaction.replied || interaction.deferred) {
+                await interaction.followUp({ content: '❌ Произошла ошибка при выполнении команды.', flags: MessageFlags.Ephemeral });
+            } else {
+                await interaction.reply({ content: '❌ Произошла ошибка при выполнении команды.', flags: MessageFlags.Ephemeral });
+            }
+        } catch (replyError) {
+            // Не даем процессу падать на истекшем/уже подтвержденном interaction.
+            if (replyError?.code !== 10062 && replyError?.code !== 40060) {
+                console.error('[Interaction error reply failed]:', replyError);
+            }
         }
     }
 });

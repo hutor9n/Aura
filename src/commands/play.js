@@ -246,8 +246,12 @@ module.exports = {
         }
 
         if (isInteraction) {
-            await deferIfInteraction(interactionOrMessage, { ephemeral: true });
-            await interactionOrMessage.followUp(`🔍 Ищу трек: **${query}**...`);
+            const canUseInteractionWebhook = await deferIfInteraction(interactionOrMessage, { ephemeral: true });
+            if (canUseInteractionWebhook) {
+                await interactionOrMessage.followUp(`🔍 Ищу трек: **${query}**...`);
+            } else {
+                await interactionOrMessage.channel.send(`🔍 Ищу трек: **${query}**...`);
+            }
         } else {
             interactionOrMessage.channel.send(`🔍 Ищу трек: **${query}**...`);
         }
@@ -287,7 +291,22 @@ module.exports = {
                 return;
             } catch (error) {
                 console.error('[Lavalink] Ошибка play:', error);
-                return replyText(interactionOrMessage, '❌ Ошибка Lavalink: не удалось воспроизвести трек.');
+
+                const lavalinkErrorText = String(error?.message || error || '');
+                const isYoutubeCipherBreakage = /YoutubeSignatureCipherManager|no actions match|player script|Loading information for a YouTube track failed|Invalid status code for search response:\s*400/i.test(lavalinkErrorText);
+
+                // Если Lavalink ломается на YouTube-сигнатуре, отключаем его до перезапуска процесса
+                // и автоматически переключаемся на discord-player ниже по коду.
+                if (isYoutubeCipherBreakage) {
+                    interactionOrMessage.client.lavalinkEnabled = false;
+                    console.warn('[Lavalink] Временно отключен из-за ошибки YouTube cipher. Используем discord-player fallback.');
+                }
+
+                if (isInteraction) {
+                    await interactionOrMessage.followUp('ℹ️ Lavalink временно недоступен. Пробую резервный источник воспроизведения...');
+                } else {
+                    await interactionOrMessage.channel.send('ℹ️ Lavalink временно недоступен. Пробую резервный источник воспроизведения...');
+                }
             }
         }
 

@@ -7,6 +7,53 @@ function isConfigured() {
     return Boolean(process.env.LAVALINK_HOST && process.env.LAVALINK_PORT && process.env.LAVALINK_PASSWORD);
 }
 
+function parseBoolean(value, fallback = false) {
+    if (typeof value !== 'string') return fallback;
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true') return true;
+    if (normalized === 'false') return false;
+    return fallback;
+}
+
+function buildNodeConfigFromEnv() {
+    const rawHost = String(process.env.LAVALINK_HOST || '').trim();
+    const rawPort = String(process.env.LAVALINK_PORT || '').trim();
+    const auth = String(process.env.LAVALINK_PASSWORD || '').trim();
+    const secureFromEnv = parseBoolean(process.env.LAVALINK_SECURE, false);
+
+    if (!rawHost || !rawPort || !auth) {
+        return null;
+    }
+
+    let host = rawHost.replace(/^wss?:\/\//i, '').replace(/^https?:\/\//i, '');
+    if (host.includes('/')) {
+        host = host.split('/')[0];
+    }
+
+    let port = Number.parseInt(rawPort, 10);
+    let secure = secureFromEnv;
+
+    // Поддержка вида HOST="example.com:443"
+    const hostPortMatch = host.match(/^(.*):(\d+)$/);
+    if (hostPortMatch) {
+        host = hostPortMatch[1];
+        if (!rawPort) {
+            port = Number.parseInt(hostPortMatch[2], 10);
+        }
+    }
+
+    if (!Number.isFinite(port) || port <= 0 || port > 65535) {
+        throw new Error(`[Lavalink] Некорректный LAVALINK_PORT: ${rawPort}`);
+    }
+
+    return {
+        name: 'optiklink',
+        url: `${host}:${port}`,
+        auth,
+        secure
+    };
+}
+
 function createDefaultState() {
     return {
         currentTrack: null,
@@ -51,6 +98,11 @@ function extractTracks(result) {
 function firstNode(client) {
     const nodes = Array.from(client.lavalink.nodes.values());
     return nodes.find((n) => n.state === 'CONNECTED' || n.state === 2) || nodes[0] || null;
+}
+
+function hasConnectedNode(client) {
+    const node = firstNode(client);
+    return Boolean(node && (node.state === 'CONNECTED' || node.state === 2));
 }
 
 async function getOrCreatePlayer(client, guildId, voiceChannelId, shardId) {
@@ -136,19 +188,19 @@ function attachPlayerEvents(client, player, guildId) {
 function initLavalink(client) {
     if (!isConfigured()) {
         client.lavalinkEnabled = false;
+        console.warn('[Lavalink] Отключен: не заданы LAVALINK_HOST/LAVALINK_PORT/LAVALINK_PASSWORD');
+        return;
+    }
+
+    const nodeConfig = buildNodeConfigFromEnv();
+    if (!nodeConfig) {
+        client.lavalinkEnabled = false;
         return;
     }
 
     client.lavalink = new Shoukaku(
         new Connectors.DiscordJS(client),
-        [
-            {
-                name: 'optiklink',
-                url: `${process.env.LAVALINK_HOST}:${process.env.LAVALINK_PORT}`,
-                auth: process.env.LAVALINK_PASSWORD,
-                secure: String(process.env.LAVALINK_SECURE || 'true') === 'true'
-            }
-        ],
+        [nodeConfig],
         {
             resumable: true,
             resumableTimeout: 60,
@@ -156,19 +208,31 @@ function initLavalink(client) {
         }
     );
 
-    client.lavalinkEnabled = true;
+    client.lavalinkEnabled = false;
 
     client.lavalink.on('ready', (name) => {
+        client.lavalinkEnabled = true;
         console.log(`[Lavalink] Нода ${name} готова.`);
     });
 
     client.lavalink.on('error', (name, error) => {
         console.error(`[Lavalink] Ошибка ноды ${name}:`, error);
+        client.lavalinkEnabled = hasConnectedNode(client);
     });
+
+    client.lavalink.on('close', () => {
+        client.lavalinkEnabled = hasConnectedNode(client);
+    });
+
+    console.log(`[Lavalink] Подключение к ${nodeConfig.secure ? 'wss' : 'ws'}://${nodeConfig.url}`);
 }
 
 function isLavalinkEnabled(client) {
-    return Boolean(client?.lavalinkEnabled && client?.lavalink);
+    if (!client?.lavalinkEnabled || !client?.lavalink) {
+        return false;
+    }
+
+    return hasConnectedNode(client);
 }
 
 async function lavalinkPlay(client, { guildId, voiceChannelId, shardId, query }) {

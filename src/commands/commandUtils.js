@@ -5,6 +5,14 @@ function isInteractionCommand(ctx) {
 }
 
 async function deferIfInteraction(ctx, options) {
+    if (!isInteractionCommand(ctx)) {
+        return false;
+    }
+
+    if (ctx.deferred || ctx.replied) {
+        return true;
+    }
+
     if (isInteractionCommand(ctx) && !ctx.deferred && !ctx.replied) {
         const deferOptions = { ...(options || {}) };
         if ('ephemeral' in deferOptions) {
@@ -14,12 +22,23 @@ async function deferIfInteraction(ctx, options) {
             delete deferOptions.ephemeral;
         }
 
-        if (Object.keys(deferOptions).length === 0) {
-            await ctx.deferReply();
-        } else {
-            await ctx.deferReply(deferOptions);
+        try {
+            if (Object.keys(deferOptions).length === 0) {
+                await ctx.deferReply();
+            } else {
+                await ctx.deferReply(deferOptions);
+            }
+            return true;
+        } catch (error) {
+            if (error?.code === 10062 || error?.code === 40060) {
+                // Interaction истёк или уже подтвержден в другом процессе.
+                return false;
+            }
+            throw error;
         }
     }
+
+    return false;
 }
 
 function getBotVoiceChannel(ctx) {
@@ -32,10 +51,17 @@ function getMemberVoiceChannel(ctx) {
 
 async function replyText(ctx, text) {
     if (isInteractionCommand(ctx)) {
-        if (ctx.deferred || ctx.replied) {
-            return ctx.editReply({ content: text });
+        try {
+            if (ctx.deferred || ctx.replied) {
+                return await ctx.editReply({ content: text });
+            }
+            return await ctx.reply({ content: text });
+        } catch (error) {
+            if ((error?.code === 10062 || error?.code === 40060) && ctx.channel) {
+                return ctx.channel.send(text);
+            }
+            throw error;
         }
-        return ctx.reply({ content: text });
     }
 
     return ctx.reply(text);
