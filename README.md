@@ -22,6 +22,21 @@
    npm start
    ```
 
+## Подключение к OptikLink (Lavalink)
+
+Заполните в `.env` следующие переменные:
+
+```env
+LAVALINK_HOST="your-node.optiklink.example"
+LAVALINK_PORT="2333"
+LAVALINK_PASSWORD="your_password"
+LAVALINK_SECURE="true"
+```
+
+Поведение бота:
+- Если переменные Lavalink не заполнены, используется `discord-player` (текущий режим по умолчанию).
+- Если переменные Lavalink заполнены, команды `play/pause/skip/stop/volume` и кнопки управления переходят на OptikLink.
+
 ## Минимальный smoke-тест
 
 Проверка загрузки экстракторов и поиска трека:
@@ -35,25 +50,6 @@ npm test
 ```bash
 npm run test:extractor
 ```
-
-## Деплой на Render.com
-
-Для Discord-бота используйте **Background Worker** (не Web Service).
-
-1. Запушьте проект в GitHub.
-2. В Render нажмите `New` -> `Background Worker`.
-3. Подключите ваш репозиторий.
-4. Укажите команды:
-   - Build Command: `npm install`
-   - Start Command: `npm start`
-5. Добавьте переменные окружения:
-   - `DISCORD_TOKEN`
-   - `YOUTUBE_COOKIE` (опционально)
-6. Запустите деплой и проверьте логи.
-
-Важно:
-- Боту не нужен открытый HTTP порт.
-- Если используете Free-план и сервис засыпает, бот будет оффлайн во сне.
 
 ## Доступные команды
 

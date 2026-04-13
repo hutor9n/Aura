@@ -3,6 +3,7 @@ const { useMainPlayer } = require('discord-player');
 const youtubedl = require('youtube-dl-exec');
 const { isInteractionCommand, deferIfInteraction, getMemberVoiceChannel, replyText } = require('./commandUtils');
 const { createPlayerControlComponents } = require('../playerControls');
+const { isLavalinkEnabled, lavalinkPlay, getLavalinkControlState, getQueueSize } = require('../lavalink');
 
 function extractYoutubeVideoId(input) {
     try {
@@ -99,6 +100,21 @@ function sendQueueStatusMessage(message, queue, track, addedToQueue) {
     return message.channel.send({
         content: `${header}\n\n${formatQueueStatus(queue)}`,
         components: createPlayerControlComponents(queue)
+    });
+}
+
+function sendLavalinkStatusMessage(message, state, track, addedToQueue) {
+    const title = track?.info?.title || track?.title || 'Неизвестный трек';
+    const url = track?.info?.uri || track?.uri;
+    const trackText = url ? `[${title}](${url})` : `**${title}**`;
+    const queueSize = getQueueSize(message.client, message.guild.id);
+    const header = addedToQueue
+        ? `✅ Трек добавлен в очередь: ${trackText}`
+        : `▶️ Воспроизведение: ${trackText}`;
+
+    return message.channel.send({
+        content: `${header}\n\n📜 Очередь (${queueSize})`,
+        components: createPlayerControlComponents(state)
     });
 }
 
@@ -246,13 +262,32 @@ module.exports = {
             return replyText(interactionOrMessage, 'У меня нет прав на подключение и разговор в этом голосовом канале!');
         }
 
-        if (!interactionOrMessage.client.extractorsReady) {
-            const ready = typeof interactionOrMessage.client.ensureExtractorsReady === 'function'
-                ? await interactionOrMessage.client.ensureExtractorsReady()
-                : true;
+        if (isLavalinkEnabled(interactionOrMessage.client)) {
+            try {
+                const { track, queued } = await lavalinkPlay(interactionOrMessage.client, {
+                    guildId: interactionOrMessage.guild.id,
+                    voiceChannelId: voiceChannel.id,
+                    shardId: interactionOrMessage.guild.shardId ?? 0,
+                    query,
+                    textChannelId: interactionOrMessage.channel.id
+                });
 
-            if (!ready) {
-                return replyText(interactionOrMessage, '⏳ Бот прогревается после запуска. Повтори команду через 5-10 секунд.');
+                if (!track) {
+                    return replyText(interactionOrMessage, '❌ Не удалось найти трек по этому запросу.');
+                }
+
+                await sendLavalinkStatusMessage(
+                    interactionOrMessage,
+                    getLavalinkControlState(interactionOrMessage.client, interactionOrMessage.guild.id),
+                    track,
+                    queued
+                );
+
+                await replyText(interactionOrMessage, '✅ Трек добавлен в очередь и сообщение отправлено в канал.');
+                return;
+            } catch (error) {
+                console.error('[Lavalink] Ошибка play:', error);
+                return replyText(interactionOrMessage, '❌ Ошибка Lavalink: не удалось воспроизвести трек.');
             }
         }
 

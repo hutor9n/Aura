@@ -14,10 +14,10 @@ async function deferIfInteraction(ctx, options) {
             delete deferOptions.ephemeral;
         }
 
-        if (Object.keys(deferOptions).length > 0) {
-            await ctx.deferReply(deferOptions);
-        } else {
+        if (Object.keys(deferOptions).length === 0) {
             await ctx.deferReply();
+        } else {
+            await ctx.deferReply(deferOptions);
         }
     }
 }
