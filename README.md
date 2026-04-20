@@ -1,30 +1,30 @@
-# Aura Музыкальный Бот 🎵
+# Aura Music Bot 🎵
 
-Это Discord-бот для воспроизведения музыки, написанный на Node.js с использованием библиотеки `discord.js` и `discord-player`.
+Aura is a Discord music bot built with Node.js using `discord.js`, `discord-player`, and optional Lavalink support via `shoukaku`.
 
-## Требования
-- Node.js (Версия 16.9.0 или выше, рекомендуется 18+)
-- FFMPEG (встроен через `ffmpeg-static`)
+## Requirements
+- Node.js 16.9.0 or newer (Node 18+ recommended)
+- FFMPEG is bundled through `ffmpeg-static`
 
-## Установка и запуск
+## Installation
 
-1. Склонируйте репозиторий или скачайте файлы.
-2. Откройте терминал в папке проекта и установите зависимости:
+1. Clone the repository or download the files.
+2. Open a terminal in the project folder and install dependencies:
    ```bash
    npm install
    ```
-3. Создайте `.env` на основе `.env.example` и впишите туда токен вашего бота (полученный из Discord Developer Portal):
+3. Create a `.env` file and add your Discord bot token:
    ```env
-   DISCORD_TOKEN="ВАШ_СЕКРЕТНЫЙ_ТОКЕН"
+   DISCORD_TOKEN="YOUR_BOT_TOKEN"
    ```
-4. Запустите бота:
+4. Start the bot:
    ```bash
    npm start
    ```
 
-## Подключение к OptikLink (Lavalink)
+## Optional Lavalink / OptikLink Setup
 
-Заполните в `.env` следующие переменные:
+If you want to use Lavalink for audio playback, add these values to your `.env`:
 
 ```env
 LAVALINK_HOST="your-node.optiklink.example"
@@ -33,44 +33,51 @@ LAVALINK_PASSWORD="your_password"
 LAVALINK_SECURE="true"
 ```
 
-Поведение бота:
-- Если переменные Lavalink не заполнены, используется `discord-player` (текущий режим по умолчанию).
-- Если переменные Lavalink заполнены, команды `play/pause/skip/stop/volume` и кнопки управления переходят на OptikLink.
+Behavior:
+- If Lavalink variables are not set, the bot uses `discord-player` directly.
+- If Lavalink is configured, playback commands and controls use the Lavalink node.
 
-## Минимальный smoke-тест
+## Smoke Test
 
-Проверка загрузки экстракторов и поиска трека:
+To verify extractor loading and search functionality:
 
 ```bash
 npm test
 ```
 
-или
+or
 
 ```bash
 npm run test:extractor
 ```
 
-## Доступные команды
+## Commands
 
-Бот поддерживает два формата команд: префикс `!` и slash-команды (`/play`, `/skip`, и т.д.).
+The bot supports both legacy prefix commands with `!` and slash commands.
 
-| Команда | Описание | Пример |
-|---------|----------|---------|
-| `!play <название/ccылка>` | Ищет и воспроизводит указанный трек в вашем голосовом канале. | `!play never gonna give you up` |
-| `!skip` | Пропускает текущий играющий трек. | `!skip` |
-| `!pause` | Ставит воспроизведение на паузу (или снимает с паузы при повторном вводе). | `!pause` |
-| `!stop` | Полностью останавливает воспроизведение и очищает очередь. | `!stop` |
+| Command | Description | Example |
+|---------|-------------|---------|
+| `!play <query|url>` | Search for and play a track in your voice channel | `!play never gonna give you up` |
+| `!skip` | Skip the current track | `!skip` |
+| `!pause` | Pause or resume playback | `!pause` |
+| `!stop` | Stop playback and clear the queue | `!stop` |
+| `!queue` | Show the current queue and now playing track | `!queue` |
+| `!volume <1-100>` | Change the player volume | `!volume 80` |
+| `!shuffle` | Shuffle the remaining queue | `!shuffle` |
+| `!repeat <mode>` | Toggle repeat mode | `!repeat track` |
+| `!remove <position>` | Remove a track from the queue by index | `!remove 2` |
+| `!clear` | Clear the entire queue | `!clear` |
 
-## Структура проекта
-- `index.js` — точка входа, инициализация клиента Discord и подгрузка команд.
-- `src/commands/` — папка с файлами команд. Каждая команда должна экспортировать объекты `name` и `execute`.
-- `.env` — локальный файл переменных окружения (в репозиторий не заливается).
+Slash command names match the same actions, for example `/play`, `/skip`, `/pause`, `/queue`, etc.
 
-## Решение частых проблем
-- **Ошибка `extractors.loadDefault() is no longer supported`**: Разрешена. В свежих версиях `discord-player` используется пакет `@discord-player/extractor` и функция `loadMulti(DefaultExtractors)`. Эта логика уже внедрена в проект.
-- **Ошибка `Used disallowed intents`**: Эта ошибка возникает, если в настройках бота на Discord Developer Portal не включены нужные разрешения. Зайдите на портал разработчиков во вкладку *Bot*, пролистайте до *Privileged Gateway Intents* и обязательно включите **Message Content Intent** (и желательно все остальные там же), после чего сохраните изменения.
-- **Ошибка `UnhandledEventsWarning: No event listener found...`**: Разрешена. Библиотека `discord-player` теперь требует обязательного отлова событий ошибок (error, playerError) в настройках плеера, чтобы бот не крашился при недоступном треке. Ивенты внедрены в `index.js`.
-- **Ошибка `InnertubeError: ... not found!`**: Возникает, когда YouTube обновляет дизайн сайта и ломает парсеры. Разрешается обновлением библиотеки `youtubei.js` до последней версии командой `npm install youtubei.js@latest`.
-- **Ошибки `[YOUTUBEJS][Player]: Failed to extract signature decipher function` / `n decipher function`**:
-   В проекте уже включен устойчивый режим `discord-player-youtubei` (ANDROID client + disablePlayer). Если ошибка остается, добавьте cookies в переменную `YOUTUBE_COOKIE` в `.env`.
+## Project Structure
+- `index.js` — bot entry point, Discord client setup, command loader, and interaction handling.
+- `src/commands/` — individual command modules.
+- `.env` — local environment variables (not committed to the repository).
+
+## Common Issues
+- `extractors.loadDefault() is no longer supported`: fixed by using `@discord-player/extractor` and `loadMulti(DefaultExtractors)`.
+- `Used disallowed intents`: enable the required intents in the Discord Developer Portal under the Bot section, including **Message Content Intent** if needed.
+- `UnhandledEventsWarning: No event listener found...`: `discord-player` requires error events to be handled, and the bot includes these event listeners.
+- `InnertubeError: ... not found!`: this usually means YouTube parser updates broke compatibility; update `youtubei.js` to the latest version.
+- `[YOUTUBEJS][Player]: Failed to extract signature decipher function` / `n decipher function`: the bot uses `discord-player-youtubei` with an Android client mode. If issues persist, add `YOUTUBE_COOKIE` to `.env`.
